@@ -3,12 +3,8 @@
 export PYBUILD_NAME = cubical
 
 %:
-	dh $@  --with python2,python3  --buildsystem=pybuild  --parallel
+	dh $@  --with python2  --buildsystem=pybuild  --parallel
 
 override_dh_python2:
 	dh_python2
 	dh_numpy
-
-override_dh_python3:
-	dh_python3
-	dh_numpy3
