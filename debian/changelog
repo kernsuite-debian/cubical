@@ -1,0 +1,5 @@
+cubical (0.9.2-1) xenial; urgency=medium
+
+  * Initial release
+
+ -- KERN packaging <packaging@kernsuite.info>  Tue, 17 Oct 2017 16:00:27 +0200

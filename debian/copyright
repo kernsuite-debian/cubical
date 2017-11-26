@@ -1,0 +1,11 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: CubiCal
+Source: https://github.com/ratt-ru/CubiCal
+
+Files: *
+Copyright: 2014-2017 JSKenyon
+License: GPL-2
+
+Files: debian/*
+Copyright: 2017 Gijs Molenaar <gijs@pythonic.nl>
+License: MIT.
