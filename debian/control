@@ -28,7 +28,8 @@ XB-Python-Version: ${python:Versions}
 Depends:
  ${python:Depends},
  ${misc:Depends},
- ${shlibs:Depends}
+ ${shlibs:Depends},
+ python-pkg-resources
 Description: fast radio interferometric calibration routines
  CubiCal implements several accelerated gain solvers which exploit complex
  optimisation. Computationally intensive functions have been Cythonised to
