@@ -8,6 +8,13 @@ import numpy as np
 import cubical.kernels.cyfull_complex as cyfull
 import cubical.kernels.cychain as cychain
 
+from cubical.tools import logger
+import machine_types
+from cubical.flagging import FL
+log = logger.getLogger("jones_chain")
+
+
+
 class JonesChain(MasterMachine):
     """
     This class implements a gain machine for an arbitrary chain of Jones matrices. Most of its
@@ -15,7 +22,7 @@ class JonesChain(MasterMachine):
     underlying complex 2x2 machines.
     """
 
-    def __init__(self, label, data_arr, ndir, nmod, times, frequencies, jones_options):
+    def __init__(self, label, data_arr, ndir, nmod, times, frequencies, chunk_label, jones_options):
         """
         Initialises a chain of complex 2x2 gain machines.
         
@@ -37,7 +44,8 @@ class JonesChain(MasterMachine):
                 Dictionary of options pertaining to the chain. 
         """
         
-        MasterMachine.__init__(self, label, data_arr, ndir, nmod, times, frequencies, jones_options)
+        MasterMachine.__init__(self, label, data_arr, ndir, nmod, times, frequencies,
+                               chunk_label, jones_options)
 
         self.n_dir, self.n_mod = ndir, nmod
         _, self.n_tim, self.n_fre, self.n_ant, self.n_ant, self.n_cor, self.n_cor = data_arr.shape
@@ -47,22 +55,55 @@ class JonesChain(MasterMachine):
         # and do the relevant fiddling between parameter updates. When combining DD terms with
         # DI terms, we need to be initialise the DI terms using only one direction - we do this with 
         # slicing rather than summation as it is slightly faster. 
+        from cubical.main import UserInputError
 
         self.jones_terms = []
         for term_opts in jones_options['chain']:
-            self.jones_terms.append(Complex2x2Gains(term_opts["label"], data_arr, 
-                                    ndir if term_opts["dd-term"] else 1,
-                                    nmod, times, frequencies, term_opts))
+            jones_class = machine_types.get_machine_class(term_opts['type'])
+            if jones_class is None:
+                raise UserInputError("unknown Jones class '{}'".format(term_opts['type']))
+            if jones_class is not Complex2x2Gains and term_opts['solvable']:
+                raise UserInputError("only complex-2x2 terms can be made solvable in a Jones chain")
+            self.jones_terms.append(jones_class(term_opts["label"], data_arr,
+                                        ndir, nmod, times, frequencies, chunk_label, term_opts))
 
         self.n_terms = len(self.jones_terms)
+        # make list of number of iterations per solvable term
+        # If not specified, just use the maxiter setting of each term
+        # note that this list is updated as we converge, so make a copy
+        term_iters = jones_options['sol']['term-iters']
+        if not term_iters:
+            self.term_iters = [term.maxiter for term in self.jones_terms if term.solvable]
+        elif type(term_iters) is int:
+            self.term_iters = [term_iters]
+        elif isinstance(term_iters, (list, tuple)):
+            self.term_iters = list(term_iters)
+        else:
+            raise UserInputError("invalid term-iters={} setting".format(term_iters))
 
-        self.active_index = 0
-        self.last_active_index = 100 
+        self.solvable = bool(self.term_iters)
+
+        # setup first solvable term in chain
+        self.active_index = -1
+        self._next_chain_term()
+
+        # this list accumulates the per-term convergence status strings
+        self._convergence_states = []
+        # True when the last active term has had its convergence status queried
+        self._convergence_states_finalized = True
 
         cached_array_shape = [self.n_dir, self.n_mod, self.n_tim, self.n_fre, 
                               self.n_ant, self.n_ant, self.n_cor, self.n_cor]
         self.cached_model_arr = np.empty(cached_array_shape, dtype=data_arr.dtype)
         self.cached_resid_arr = np.empty(cached_array_shape, dtype=data_arr.dtype)
+
+
+    def precompute_attributes(self, model_arr, flags_arr, inv_var_chan):
+        """Precomputes various stats before starting a solution"""
+        MasterMachine.precompute_attributes(self, model_arr, flags_arr, inv_var_chan)
+        for term in self.jones_terms:
+            if term.solvable:
+                term.precompute_attributes(model_arr, flags_arr, inv_var_chan)
 
     def export_solutions(self):
         """ Saves the solutions to a dict of {label: solutions,grids} items. """
@@ -70,8 +111,9 @@ class JonesChain(MasterMachine):
         soldict = {}
         # prefix jones label to solution name
         for term in self.jones_terms:
-            for label, sol in term.export_solutions().iteritems():
-                soldict["{}:{}".format(term.jones_label, label)] = sol
+            if term.solvable:
+                for label, sol in term.export_solutions().iteritems():
+                    soldict["{}:{}".format(term.jones_label, label)] = sol
         soldict['prefixed'] = True
 
         return soldict
@@ -87,15 +129,19 @@ class JonesChain(MasterMachine):
 
     def import_solutions(self, soldict):
         """
-        Loads solutions from a dict. 
-        
-        Args:
-            soldict (dict):
-                Contains gains solutions which must be loaded.
+        Loads solutions from a dict. This should not be called -- _load_solutions()
+        below should rather call import_solutions() on all the chain terms.
         """
+        raise RuntimeError("This method cannot be called on a Jones chain. This is a bug.")
 
+    def _load_solutions(self, init_sols):
+        """
+        Helper method invoked by Factory.create_machine() to import existing solutions into machine.
+        
+        In the case of a chain, we invoke this method on every member.
+        """
         for term in self.jones_terms:
-            term.import_solutions(soldict)
+            term._load_solutions(init_sols)
 
     def compute_js(self, obser_arr, model_arr):
         """
@@ -120,7 +166,7 @@ class JonesChain(MasterMachine):
                 - Count of flags raised (int)     
         """     
 
-        n_dir, n_tint, n_fint, n_ant, n_cor, n_cor = self.gains.shape
+        n_dir, n_tint, n_fint, n_ant, n_cor, n_cor = self.active_term.gains.shape
 
         if self.last_active_index!=self.active_index or self.iters==1:
         
@@ -130,7 +176,7 @@ class JonesChain(MasterMachine):
                 term = self.jones_terms[ind]
                 term.apply_gains(self.cached_model_arr)
 
-            if not self.dd_term and self.n_dir>1:
+            if not self.active_term.dd_term and self.n_dir>1:
                 self.cached_model_arr = np.sum(self.cached_model_arr, axis=0, keepdims=True)
 
             self.jh = np.empty_like(self.cached_model_arr)
@@ -139,9 +185,9 @@ class JonesChain(MasterMachine):
 
         for ind in xrange(self.active_index, -1, -1):
             term = self.jones_terms[ind]
-            cychain.cycompute_jh(self.jh, term.gains, term.t_int, term.f_int)
+            cychain.cycompute_jh(self.jh, term.gains, *term.gain_intervals)
             
-        jhr_shape = [n_dir if self.dd_term else 1, self.n_tim, self.n_fre, n_ant, n_cor, n_cor]
+        jhr_shape = [n_dir if self.active_term.dd_term else 1, self.n_tim, self.n_fre, n_ant, n_cor, n_cor]
 
         jhr = np.zeros(jhr_shape, dtype=obser_arr.dtype)
 
@@ -156,65 +202,27 @@ class JonesChain(MasterMachine):
         for ind in xrange(0, self.active_index, 1):
             term = self.jones_terms[ind]
             g_inv = np.empty_like(term.gains)
-            cyfull.cycompute_jhjinv(term.gains, g_inv, term.gflags, term.eps, term.flagbit)
-            cychain.cyapply_left_inv_jones(jhr, g_inv, term.t_int, term.f_int)
+            cyfull.cycompute_jhjinv(term.gains, g_inv, term.gflags, term.eps, FL.ILLCOND)
+            cychain.cyapply_left_inv_jones(jhr, g_inv, *term.gain_intervals)
 
         jhrint_shape = [n_dir, n_tint, n_fint, n_ant, n_cor, n_cor]
         
         jhrint = np.zeros(jhrint_shape, dtype=jhr.dtype)
 
-        cychain.cysum_jhr_intervals(jhr, jhrint, self.t_int, self.f_int)
+        cychain.cysum_jhr_intervals(jhr, jhrint, *self.active_term.gain_intervals)
 
         jhj = np.zeros(jhrint_shape, dtype=obser_arr.dtype)
 
-        cyfull.cycompute_jhj(self.jh, jhj, self.t_int, self.f_int)
+        cyfull.cycompute_jhj(self.jh, jhj, *self.active_term.gain_intervals)
 
         jhjinv = np.empty(jhrint_shape, dtype=obser_arr.dtype)
 
-        flag_count = cyfull.cycompute_jhjinv(jhj, jhjinv, self.gflags, self.eps, self.flagbit)
+        flag_count = cyfull.cycompute_jhjinv(jhj, jhjinv, self.active_term.gflags, self.active_term.eps, FL.ILLCOND)
 
         return jhrint, jhjinv, flag_count
 
-    def compute_update(self, model_arr, obser_arr):
-        """
-        This function computes the update step of the GN/LM method. This is equivalent to the 
-        complete (J\ :sup:`H`\J)\ :sup:`-1` J\ :sup:`H`\R.
-
-        Args:
-            obser_arr (np.ndarray): 
-                Shape (n_mod, n_tim, n_fre, n_ant, n_ant, n_cor, n_cor) array containing the 
-                observed visibilities.
-            model_arr (np.ndrray): 
-                Shape (n_dir, n_mod, n_tim, n_fre, n_ant, n_ant, n_cor, n_cor) array containing the 
-                model visibilities.
-
-        Returns:
-            int:
-                Count of flags raised.
-        """
-
-        # if not(self.dd_term) and model_arr.shape[0]>1:
-        #     jhr, jhjinv, flag_count = self.compute_js(obser_arr, np.sum(model_arr, axis=0, keepdims=True))
-        # else:
-        #     jhr, jhjinv, flag_count = self.compute_js(obser_arr, model_arr)
-
-        jhr, jhjinv, flag_count = self.compute_js(obser_arr, model_arr)
-
-        update = np.empty_like(jhr)
-
-        cyfull.cycompute_update(jhr, jhjinv, update)
-
-        if self.dd_term and model_arr.shape[0]>1:
-            update = self.gains + update
-
-        if self.iters % 2 == 0 or self.dd_term:
-            self.gains = 0.5*(self.gains + update)
-        else:
-            self.gains = update
-
-        self.restrict_solution()
-
-        return flag_count
+    def implement_update(self, jhr, jhjinv):
+        return self.active_term.implement_update(jhr, jhjinv)
 
     def compute_residual(self, obser_arr, model_arr, resid_arr):
         """
@@ -285,7 +293,7 @@ class JonesChain(MasterMachine):
 
         return corr_vis, flag_count
 
-    def apply_gains(self):
+    def apply_gains(self, vis):
         """
         Applies the gains to an array at full time-frequency resolution. 
 
@@ -298,66 +306,57 @@ class JonesChain(MasterMachine):
             np.ndarray:
                 Array containing the result of GMG\ :sup:`H`.
         """
+        # simply go through the chain in reverse, applying each Jones term in turn
+        for term in self.jones_terms[::-1]:
+            term.apply_gains(vis)
+        return vis
 
-        # TODO: Implement this function.
-
-        return
-           
-    def update_stats(self, flags, eqs_per_tf_slot):
+    def check_convergence(self, min_delta_g):
         """
-        This method computes various stats and totals based on the current state of the flags.
-        These values are used for weighting the chi-squared and doing intelligent convergence
-        testing.
-
-        Args:
-            flags_arr (np.ndarray):
-                Shape (n_tim, n_fre, n_ant, n_ant) array containing flags.
-            eqs_per_tf_slot (np.ndarray):
-                Shape (n_tim, n_fre) array containing a count of equations per time-frequency slot.
-        """
-
-        if hasattr(self.active_term, 'num_valid_intervals'):
-            self.active_term.update_stats(flags, eqs_per_tf_slot)
-        else:
-            [term.update_stats(flags, eqs_per_tf_slot) for term in self.jones_terms]
-   
-    def update_conv_params(self, min_delta_g):
-        """
-        Updates the convergence parameters of the current time-frequency chunk. 
+        Updates the convergence info of the current time-frequency chunk. 
 
         Args:
             min_delta_g (float):
                 Threshold for the minimum change in the gains - convergence criterion.
         """
-
-        self.active_term.update_conv_params(min_delta_g)
+        return self.active_term.check_convergence(min_delta_g)
 
     def restrict_solution(self):
         """
         Restricts the solutions by, for example, selecting a reference antenna or taking only the 
         amplitude. 
         """
+        return self.active_term.restrict_solution()
 
-        self.active_term.restrict_solution()
+    def flag_solutions(self, flags_arr, final=False):
+        """ Flags gain solutions."""
+        # Per-iteration flagging done on the active term, final flagging is done on all terms.
+        if final:
+            return any([ term.flag_solutions(flags_arr, True) for term in self.jones_terms if term.solvable ])
+        else:
+            return self.active_term.flag_solutions(flags_arr, False)
 
-    def flag_solutions(self):
-        """ Flags gain solutions based on certain criteria, e.g. out-of-bounds, null, etc. """
+    def num_gain_flags(self, mask=None):
+        return self.active_term.num_gain_flags(mask)
 
-        self.active_term.flag_solutions()
+    def _next_chain_term(self):
+        while True:
+            if not self.term_iters:
+                return False
+            self.active_index = (self.active_index + 1) % self.n_terms
+            if self.active_term.solvable:
+                self.active_term.maxiter = self.term_iters.pop(0)
+                if not self.active_term.maxiter:
+                    print>> log(1), "skipping term {}: 0 term iters specified".format(self.active_term.jones_label)
+                    continue
+                self.active_term.iters = 0
+                self._convergence_states_finalized = False
+                print>> log(1), "activating term {}".format(self.active_term.jones_label)
+                return True
+            else:
+                print>> log(1), "skipping term {}: non-solvable".format(self.active_term.jones_label)
 
-    def propagate_gflags(self, flags):
-        """
-        Propagates the flags raised by the gain machine back into the data. This is necessary as 
-        the gain flags may not have the same shape as the data.
-
-        Args:
-            flags (np.ndarray):
-                Shape (n_tim, n_fre, n_ant, n_ant) array containing flags. 
-        """
-        
-        self.active_term.propagate_gflags(flags)
-
-    def update_term(self):
+    def next_iteration(self):
         """
         Updates the iteration count on the relevant element of the Jones chain. It will also handle 
         updating the active Jones term. Ultimately, this should handle any complicated 
@@ -366,125 +365,82 @@ class JonesChain(MasterMachine):
 
         self.last_active_index = self.active_index
 
-        def next_term():
-            if self.active_term.has_converged:
-                self.active_index = (self.active_index + 1)%self.n_terms
-                next_term()
-                return False
-            else:
-                return True
+        if self.active_term.has_converged:
+            print>>log(1),"term {} converged ({} iters)".format(self.active_term.jones_label, self.active_term.iters)
+            self._convergence_states.append(self.active_term.final_convergence_status_string)
+            self._convergence_states_finalized = True
+            self._next_chain_term()
 
-        check_iters = next_term()
+        self.active_term.next_iteration()
 
-        if (self.iters%self.term_iters) == 0 and self.iters != 0 and check_iters:
-            self.active_index = (self.active_index + 1)%self.n_terms
-            next_term()
+        return MasterMachine.next_iteration(self)
 
-        self.iters += 1
+    def compute_chisq(self, resid_arr, inv_var_chan):
+        """Computes chi-square using the active chain term"""
+        return self.active_term.compute_chisq(resid_arr, inv_var_chan)
 
     @property
-    def gains(self):
-        return self.active_term.gains
-
-    @gains.setter
-    def gains(self, value):
-        self.active_term.gains = value
+    def has_valid_solutions(self):
+        """Gives corresponding property of the active chain term"""
+        return all([term.has_valid_solutions for term in self.jones_terms if term.solvable])
 
     @property
-    def gflags(self):
-        return self.active_term.gflags
-
-    @property
-    def n_cnvgd(self):
-        return self.active_term.n_cnvgd
-
-    @property
-    def n_sols(self):
-        return self.active_term.n_sols
-
-    @property
-    def eqs_per_interval(self):
-        return self.active_term.eqs_per_interval
-
-    @property
-    def valid_intervals(self):
-        return self.active_term.valid_intervals
-
-    @property
-    def n_tf_ints(self):
-        return self.active_term.n_tf_ints
-
-    @property
-    def max_update(self):
-        return self.active_term.max_update
-
-    @property
-    def n_flagged(self):
-        return self.active_term.n_flagged
-
-    @property
-    def num_valid_intervals(self):
-        return self.active_term.num_valid_intervals
-
-    @property
-    def missing_gain_fraction(self):
-        return self.active_term.missing_gain_fraction
-
-    @property
-    def old_gains(self):
-        return self.active_term.old_gains
-
-    @old_gains.setter
-    def old_gains(self, value):
-        self.active_term.old_gains = value
-
-    @property
-    def dtype(self):
-        return self.active_term.dtype
-
-    @property
-    def ftype(self):
-        return self.active_term.ftype
+    def num_converged_solutions(self):
+        """Gives corresponding property of the active chain term"""
+        return self.active_term.num_converged_solutions
 
     @property
     def active_term(self):
         return self.jones_terms[self.active_index]
 
     @property
-    def t_int(self):
-        return self.active_term.t_int
-
-    @property
-    def f_int(self):
-        return self.active_term.f_int
-
-    @property
-    def eps(self):
-        return self.active_term.eps
-
-    @property
-    def flagbit(self):
-        return self.active_term.flagbit
+    def dd_term(self):
+        """Gives corresponding property of the active chain term"""
+        return any([ term.dd_term for term in self.jones_terms ])
 
     @property
     def iters(self):
+        """Gives corresponding property of the active chain term"""
         return self.active_term.iters
 
     @iters.setter
     def iters(self, value):
+        """Sets corresponding property of the active chain term"""
         self.active_term.iters = value
 
     @property
     def maxiter(self):
+        """Gives corresponding property of the active chain term"""
         return self.active_term.maxiter
 
+    @maxiter.setter
+    def maxiter(self, value):
+        """Sets corresponding property of the active chain term"""
+        self.active_term.maxiter = value
+
     @property
-    def min_quorum(self):
-        return self.active_term.min_quorum
+    def conditioning_status_string(self):
+        return "; ".join([term.conditioning_status_string for term in self.jones_terms])
+
+    @property
+    def current_convergence_status_string(self):
+        """Current status is reported from the active term"""
+        return self.active_term.current_convergence_status_string
+
+    @property
+    def final_convergence_status_string(self):
+        """Final status is reported from all terms"""
+        if not self._convergence_states_finalized:
+            self._convergence_states.append(self.active_term.final_convergence_status_string)
+            self._convergence_states_finalized = True
+        return "; ".join(self._convergence_states)
 
     @property
     def has_converged(self):
-        return np.all([term.has_converged for term in self.jones_terms])
+        # Chain has converged when term_iters is empty -- since we take off an element each time we converge a term
+        return not self.solvable or \
+               ( self.active_term.has_converged and not self.term_iters )
+        #return np.all([term.has_converged for term in self.jones_terms])
 
     @property
     def has_stalled(self):
@@ -494,17 +450,6 @@ class JonesChain(MasterMachine):
     def has_stalled(self, value):
         self.active_term.has_stalled = value
 
-    @property
-    def update_type(self):
-        return self.active_term.update_type
-
-    @property
-    def dd_term(self):
-        return self.active_term.dd_term
-
-    @property
-    def term_iters(self):
-        return self.active_term.term_iters
 
     class Factory(MasterMachine.Factory):
         """
@@ -512,7 +457,7 @@ class JonesChain(MasterMachine):
         """
         def __init__(self, machine_cls, grid, double_precision, apply_only, global_options, jones_options):
             # manufacture dict of "Jones options" for the outer chain
-            opts = dict(label="chain", solvable=not apply_only, chain=jones_options)
+            opts = dict(label="chain", solvable=not apply_only, sol=global_options['sol'], chain=jones_options)
             self.chain_options = jones_options
             MasterMachine.Factory.__init__(self, machine_cls, grid, double_precision, apply_only,
                                            global_options, opts)
@@ -520,6 +465,9 @@ class JonesChain(MasterMachine):
         def init_solutions(self):
             for opts in self.chain_options:
                 label = opts["label"]
-                self._init_solutions(label, self._make_filename(opts["load-from"]),
-                                     self.solvable and opts["solvable"] and self._make_filename(opts["save-to"]),
+                self._init_solutions(label,
+                                     self.make_filename(opts["xfer-from"]) or
+                                     self.make_filename(opts["load-from"]),
+                                     bool(opts["xfer-from"]),
+                                     self.solvable and opts["solvable"] and self.make_filename(opts["save-to"], label),
                                      Complex2x2Gains.exportable_solutions())

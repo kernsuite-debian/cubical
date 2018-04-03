@@ -7,6 +7,7 @@ import numpy as np
 import cubical.kernels.cyfull_W_complex as cyfull
 import cPickle
 from scipy import special
+from cubical.flagging import FL
 
 
 class ComplexW2x2Gains(PerIntervalGains):
@@ -14,9 +15,11 @@ class ComplexW2x2Gains(PerIntervalGains):
     This class implements the weighted full complex 2x2 gain machine
     """
     
-    def __init__(self, label, model_arr, ndir, nmod, chunk_ts, chunk_fs, options):
+    def __init__(self, label, model_arr, ndir, nmod,
+                 chunk_ts, chunk_fs, chunk_label, options):
         
-        PerIntervalGains.__init__(self, label, model_arr, ndir, nmod, chunk_ts, chunk_fs, options)
+        PerIntervalGains.__init__(self, label, model_arr, ndir, nmod, chunk_ts, chunk_fs,
+                                  chunk_label, options)
         
         self.gains     = np.empty(self.gain_shape, dtype=self.dtype)
         
@@ -74,7 +77,7 @@ class ComplexW2x2Gains(PerIntervalGains):
 
         jhwjinv = np.empty(jhwr_shape, dtype=obser_arr.dtype)
 
-        flag_count = cyfull.cycompute_jhwjinv(jhwj, jhwjinv, self.gflags, self.eps, self.flagbit)
+        flag_count = cyfull.cycompute_jhwjinv(jhwj, jhwjinv, self.gflags, self.eps, FL.ILLCOND)
 
         return jhwr, jhwjinv, flag_count
 
@@ -93,21 +96,7 @@ class ComplexW2x2Gains(PerIntervalGains):
             update (np.array): Array containing the result of computing
                 (((J^H)WJ)^-1)(J^H)WR
         """
-
-        
-        jhwr, jhwjinv, flag_count = self.compute_js(obser_arr, model_arr)
-
-        update = np.empty_like(jhwr)
-
-        cyfull.cycompute_update(jhwr, jhwjinv, update)
-
-        if model_arr.shape[0]>1 or self.n_dir>1:
-			update = self.gains + update
-
-        if self.iters % 2 == 0 or self.n_dir>1 :
-            self.gains = 0.5*(self.gains + update)
-        else:
-            self.gains = update
+        flag_count = PerIntervalGains.compute_update(model_arr, obser_arr)
         
         #Computing the weights
         resid_arr = np.empty_like(obser_arr)
@@ -258,7 +247,7 @@ class ComplexW2x2Gains(PerIntervalGains):
 
         g_inv = np.empty_like(self.gains)
 
-        flag_count = cyfull.cycompute_jhwjinv(self.gains, g_inv, self.gflags, self.eps, self.flagbit) # Function can invert G.
+        flag_count = cyfull.cycompute_jhwjinv(self.gains, g_inv, self.gflags, self.eps, FL.ILLCOND) # Function can invert G.
 
         gh_inv = g_inv.transpose(0,1,2,3,5,4).conj()
 
@@ -268,19 +257,6 @@ class ComplexW2x2Gains(PerIntervalGains):
         cyfull.cycompute_corrected(obser_arr, g_inv, gh_inv, corr_vis, self.t_int, self.f_int)
 
         return corr_vis, flag_count
-
-    def apply_gains(self, model_arr):
-        """
-        This method should be able to apply the gains to an array at full time-frequency
-        resolution. Should return the input array at full resolution after the application of the 
-        gains.
-        """
-
-        gh = self.gains.transpose(0,1,2,3,5,4).conj()
-
-        cyfull.cyapply_gains(model_arr, self.gains, gh, self.t_int, self.f_int)
-
-        return model_arr
 
     def restrict_solution(self):
         

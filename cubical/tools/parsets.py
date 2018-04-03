@@ -21,13 +21,15 @@ def test():
 #     return Dico
 
 
-def parse_as_python(string, words_are_strings=False):
+def parse_as_python(string, allow_builtins=False, allow_types=False):
     """Tries to interpret string as a Python object. Returns value, or string itself if unsuccessful.
     Names of built-in functions are _not_ interpreted as functions!
     """
     try:
         value = eval(string, {}, {})
-        if type(value) is type(all):  # do not interpret built-in function names
+        if type(value) is type(all) and not allow_builtins:  # do not interpret built-in function names
+            return string
+        if type(value) is type(int) and not allow_types:  # do not interpret built-in function names
             return string
         return value
     except:
@@ -92,7 +94,7 @@ def parse_config_string(string, name='config', extended=True, type=None):
             if attrs['type'] == 'string':
                 attrs['type'] = str
             # type had better be a callable type object
-            type = parse_as_python(attrs['type'])
+            attrs['type'] = type = parse_as_python(attrs['type'], allow_types=True)
             if not callable(type):
                 raise ValueError("%s: invalid '#type:%s' attribute"%(name, attrs['type']))
 
@@ -136,21 +138,45 @@ class Parset():
         if filename:
             self.read(filename)
 
-    def update_values (self, other, newval=True):
-        """Updates this Parset with keys found in other parset. NB: does not update keys that are in other but
-        not self."""
-        for secname in self.value_dict.keys():
-            for name, value in other.value_dict.get(secname, {}).iteritems():
-                if name in self.value_dict[secname]:
-                    attrs = self.attr_dict[secname].get(name,{})
-                    if not attrs.get('cmdline_only'):
-                        self.value_dict[secname][name] = value
-                        # make sure aliases get copied under both names
-                        alias = attrs.get('alias') or attrs.get('alias_of')
-                        if alias:
-                            self.value_dict[secname][alias] = value
+    def update_values (self, other, other_filename=''):
+        """Updates this Parset with keys found in other parset.
+        other_filename is only needed for error messages."""
+        for secname, secvalues in other.value_dict.iteritems():
+            if secname in self.value_dict:
+                for name, value in secvalues.iteritems():
+                    attrs = self.attr_dict[secname].get(name)
+                    if attrs is None:
+                        attrs = self.attr_dict[secname][name] = \
+                            other.attr_dict[secname].get(name, {})
+                    if attrs.get('cmdline_only'):
+                        continue
+                    # check value for type and options conformance
+                    if 'type' in attrs:
+                        try:
+                            value = attrs['type'](value)
+                        except:
+                            raise TypeError("invalid [{}] {}={} setting{}".format(
+                                            secname, name, value, other_filename))
+                    if 'options' in attrs and value not in attrs['options']:
+                        if str(value) in attrs['options']:
+                            value = str(value)
+                        else:
+                            raise TypeError("invalid [{}] {}={} setting{}".format(
+                                            secname, name, value, other_filename))
+                    self.value_dict[secname][name] = value
+                    # make sure aliases get copied under both names
+                    alias = attrs.get('alias') or attrs.get('alias_of')
+                    if alias:
+                        self.value_dict[secname][alias] = value
+            else:
+                self.value_dict[secname] = secvalues
+                self.attr_dict[secname] = other.attr_dict[secname]
 
-    def read (self, filename):
+    def read (self, filename, default_parset=False):
+        """Reads parset from filename.
+        default_parset: if True, this is treated as the default parset, and things like templated
+        section names are expanded.
+        """
         self.filename = filename
         self.Config = config = ConfigParser.ConfigParser(dict_type=OrderedDict)
         config.optionxform = str
