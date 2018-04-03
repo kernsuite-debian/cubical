@@ -130,10 +130,10 @@ else:
                     'sharedarray', 
                     'matplotlib',
                     'scipy',
-                    'astro-tigger']
+                    'astro-tigger-lsm']
 
 setup(name='cubical',
-      version='0.9.2',
+      version='1.0.0',
       description='Fast calibration implementation exploiting complex optimisation.',
       url='https://github.com/JSKenyon/phd-code',
       classifiers=[
@@ -146,8 +146,13 @@ setup(name='cubical',
       author='Jonathan Kenyon',
       author_email='jonosken@gmail.com',
       license='GNU GPL v3',
-      cmdclass={'build_ext': build_ext},  
-      packages=['cubical', 'cubical.machines', 'cubical.tools', 'cubical.kernels'],
+      cmdclass={'build_ext': build_ext},
+      packages=['cubical', 
+                'cubical.machines', 
+                'cubical.tools', 
+                'cubical.kernels', 
+                'cubical.plots',
+                'cubical.database',],
       install_requires=requirements,
       include_package_data=True,
       zip_safe=False,
