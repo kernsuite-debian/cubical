@@ -1,3 +1,9 @@
+cubical (1.0.0-1kern2) bionic; urgency=medium
+
+  * fix dependency
+
+ -- KERN packaging <packaging@kernsuite.info>  Fri, 04 May 2018 14:28:56 +0200
+
 cubical (1.0.0-1kern1) xenial; urgency=medium
 
   * New upstream version 1.0.0
