@@ -13,7 +13,7 @@ Build-Depends:
  python-sharedarray,
  python-matplotlib,
  python-scipy,
- python-tigger
+ python-astro-tigger-lsm
 Standards-Version: 3.9.7
 Homepage: https://github.com/ratt-ru/CubiCal
 X-Python-Version: >= 2.6
