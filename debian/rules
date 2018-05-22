@@ -5,6 +5,8 @@ export PYBUILD_NAME = cubical
 %:
 	dh $@  --with python2  --buildsystem=pybuild  --parallel
 
+override_dh_auto_clean:
+
 override_dh_python2:
 	dh_python2
 	dh_numpy
