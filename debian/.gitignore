@@ -1,0 +1,8 @@
+.debhelper/
+cubical/
+debhelper-build-stamp
+files
+*.debhelper
+*.substvars
+python3-cubical/
+

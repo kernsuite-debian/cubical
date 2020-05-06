@@ -1,0 +1,57 @@
+Description: Fixes py3 compatibility
+
+--- cubical-1.5.1.orig/cubical/plots/gainsols.py
++++ cubical-1.5.1/cubical/plots/gainsols.py
+@@ -176,8 +176,8 @@ def plot_bandpass(sols, plot_diag='ap',
+             ax.plot(freq, x2[ts].imag, '+y', ms=2, label=im2 if not ts else None)
+         if legend:
+             ax.legend(handles=[mpatches.Patch(color=col, label=label) for col, label in
+-                                   ("r", re1), ("b", im1),
+-                                   ("c", re2), ("y", im2)
++                                   [("r", re1), ("b", im1),
++                                   ("c", re2), ("y", im2)]
+                                ], loc="upper center", ncol=2, fontsize=options.font_size)
+ 
+     def _make_ap_plot(ax, ax2, freq, x1, x2, corrs, legend):
+@@ -191,8 +191,8 @@ def plot_bandpass(sols, plot_diag='ap',
+             ax.plot(freq, abs(x2[ts]), '+b', ms=2, label=amp2 if not ts else None)
+         if legend:
+             ax.legend(handles=[mpatches.Patch(color=col, label=label) for col, label in
+-                                   ("r", amp1), ("b", amp2),
+-                                   ("c", ph1),  ("y", ph2)
++                                   [("r", amp1), ("b", amp2),
++                                   ("c", ph1),  ("y", ph2)]
+                                ], loc="upper center", ncol=2, fontsize=options.font_size)
+ 
+     for iant, (ant, (time, freq, g00, g01, g10, g11)) in enumerate(sols.items()[:max_sols]):
+@@ -300,7 +300,7 @@ def plot_gain(sols, plot_diag='ap', plot
+             ax.plot(time, x2[:, fs], '+b', ms=2, label=corrs[1] if not fs else None)
+         if legend:
+             ax.legend(handles=[mpatches.Patch(color=col, label=label) for col, label in
+-                                   ("r", corrs[0]), ("b", corrs[1]),
++                                   [("r", corrs[0]), ("b", corrs[1])]
+                                ], loc="upper center", ncol=2, fontsize=options.font_size)
+ 
+     def _make_reim_plot(ax, time, x1, x2, corrs, legend):
+@@ -313,8 +313,8 @@ def plot_gain(sols, plot_diag='ap', plot
+             ax.plot(time, x2[:, fs].imag, '+y', ms=2, label=im2 if not fs else None)
+         if legend:
+             ax.legend(handles=[mpatches.Patch(color=col, label=label) for col, label in
+-                                   ("r", re1), ("b", im1),
+-                                   ("c", re2), ("y", im2)
++                                   [("r", re1), ("b", im1),
++                                   ("c", re2), ("y", im2)]
+                                ], loc="upper center", ncol=2, fontsize=options.font_size)
+ 
+     def _make_ap_plot(ax, AX2, time, x1, x2, corrs, legend):
+@@ -328,8 +328,8 @@ def plot_gain(sols, plot_diag='ap', plot
+             ax.plot(time, abs(x2[:, fs]), '+b', ms=2, label=amp2 if not fs else None)
+         if legend:
+             ax.legend(handles=[mpatches.Patch(color=col, label=label) for col, label in
+-                                   ("r", amp1), ("b", amp2),
+-                                   ("c", ph1),  ("y", ph2)
++                                   [("r", amp1), ("b", amp2),
++                                   ("c", ph1),  ("y", ph2)]
+                                ], loc="upper center", ncol=2, fontsize=options.font_size)
+ 
+     for iant, (ant, (time, freq, g00, g01, g10, g11)) in enumerate(sols.items()):

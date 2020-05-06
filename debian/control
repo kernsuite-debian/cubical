@@ -1,0 +1,26 @@
+Source: cubical
+Section: python
+Priority: optional
+Maintainer: KERN packaging <packaging@kernsuite.info>
+Build-Depends: debhelper-compat (= 12), dh-python, python3-setuptools, python3-all
+Standards-Version: 4.4.1
+Homepage: https://github.com/ratt-ru/CubiCal
+Vcs-Browser: https://github.com/kernsuite-debian/cubical
+Vcs-Git: https://github.com/kernsuite-debian/cubical
+
+Package: python3-cubical
+Architecture: all
+Depends: ${python3:Depends}, ${misc:Depends}
+Suggests: python-cubical-doc
+Description: A fast radio interferometric calibration suite. (Python 3)
+ CubiCal is a suite of fast radio interferometric calibration routines
+ exploiting complex optimisation.
+ .
+ This package installs the library for Python 3.
+
+Package: cubical
+Architecture: all
+Depends: python3-cubical
+Description: A fast radio interferometric calibration suite. (Python 3)
+ CubiCal is a suite of fast radio interferometric calibration routines
+ exploiting complex optimisation.
