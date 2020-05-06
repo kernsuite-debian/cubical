@@ -1,0 +1,3 @@
+include cubical/DefaultParset.cfg
+include cubical/database/blankcaltable.CASA.tgz
+include cubical/bin/gocubical
