@@ -2,7 +2,14 @@ Source: cubical
 Section: python
 Priority: optional
 Maintainer: KERN packaging <packaging@kernsuite.info>
-Build-Depends: debhelper-compat (= 12), dh-python, python3-setuptools, python3-all
+Build-Depends:
+ debhelper (>= 11),
+ dh-python,
+ python3-setuptools,
+ python3-all,
+ python3-six,
+ python3-numpy,
+ python3-future
 Standards-Version: 4.4.1
 Homepage: https://github.com/ratt-ru/CubiCal
 Vcs-Browser: https://github.com/kernsuite-debian/cubical
