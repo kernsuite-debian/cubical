@@ -1,3 +1,10 @@
+cubical (1.5.1-1kern1) bionic; urgency=medium
+
+  [ Gijs Molenaar ]
+  * fix deps, depend on older debhelper
+
+ -- KERN packaging <packaging@kernsuite.info>  Wed, 06 May 2020 13:20:16 +0200
+
 cubical (1.5.1-1) bionic; urgency=medium
 
   * Initial release
