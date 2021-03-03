@@ -5,6 +5,7 @@ from collections import OrderedDict
 import matplotlib.patches as mpatches
 from pylab import *
 import re, fnmatch
+import warnings
 
 log = logger.getLogger("gain_plots")
 
@@ -37,6 +38,8 @@ class PlotOptions(PlotLimits):
     def populate_argparse(parser):
         parser.add_argument("--ant", type=str, default='*', metavar="ANT",
                                 help="Antenna subset. You may specify multiple comma-separated names or globs")
+        parser.add_argument("--dir", type=int, default=0, metavar="DIR",
+                                help="Direction number, for direction-dependent tables")
         parser.add_argument("--nrow", type=int, default=7, help="Plot rows")
         parser.add_argument("--ncol", type=int, default=4, help="Plot columns")
         parser.add_argument("--width", type=float, metavar="INCHES", default=4, help="Plot width")
@@ -76,21 +79,23 @@ def get_plot_limits(options, sols, time0=0):
     if auto_limits.max_freq == auto_limits.min_freq:
         auto_limits.max_freq += 1
 
-    max_ampls_diag = { ant: max(abs(g00).max(), abs(g11).max()) for ant, (_, _, g00, g01, g10, g11) in sols.items() }
-    log.print("max diag amplitude per antenna:", ", ".join([ "{}: {}".format(ant, val) for ant, val in sorted(max_ampls_diag.items())]))
-    auto_limits.max_ampl = max(max_ampls_diag.values())
+    with warnings.catch_warnings():  # abs tends to raise complex warnings on masked arrays.
+        warnings.simplefilter("ignore", ComplexWarning)
+        max_ampls_diag = { ant: max(abs(g00).max(), abs(g11).max()) for ant, (_, _, g00, g01, g10, g11) in sols.items() }
+        log.print("max diag amplitude per antenna:", ", ".join([ "{}: {}".format(ant, val) for ant, val in sorted(max_ampls_diag.items())]))
+        auto_limits.max_ampl = max(max_ampls_diag.values())
 
-    max_ampls_offdiag = { ant: max(abs(g01).max(), abs(g10).max()) for ant, (_, _, g00, g01, g10, g11) in sols.items() }
-    log.print("max off-diag amplitude per antenna:", ", ".join([ "{}: {}".format(ant, val) for ant, val in sorted(max_ampls_offdiag.items())]))
-    auto_limits.max_ampl_1 = max(max_ampls_offdiag.values())
+        max_ampls_offdiag = { ant: max(abs(g01).max(), abs(g10).max()) for ant, (_, _, g00, g01, g10, g11) in sols.items() }
+        log.print("max off-diag amplitude per antenna:", ", ".join([ "{}: {}".format(ant, val) for ant, val in sorted(max_ampls_offdiag.items())]))
+        auto_limits.max_ampl_1 = max(max_ampls_offdiag.values())
 
-    auto_limits.min_ampl = min([ min(abs(g00).min(), abs(g11).min()) for _, _, g00, g01, g10, g11 in sols.values()])
-    auto_limits.min_ampl_1 = min([ min(abs(g01).min(), abs(g10).min()) for _, _, g00, g01, g10, g11 in sols.values()])
-    auto_limits.max_phase = max([ max([abs(np.angle(g)).max() for g in ggs[2:]]) for ggs in sols.values()])*180/np.pi
-    auto_limits.max_reim = max([ max(abs(g00.real).max(), abs(g00.imag).max(), abs(g11.real).max(), abs(g11.imag).max())
-                                 for _, _, g00, g01, g10, g11 in sols.values()])
-    auto_limits.max_reim_1 = max([ max(abs(g01.real).max(), abs(g01.imag).max(), abs(g10.real).max(), abs(g10.imag).max())
-                                   for _, _, g00, g01, g10, g11 in sols.values()])
+        auto_limits.min_ampl = min([ min(abs(g00).min(), abs(g11).min()) for _, _, g00, g01, g10, g11 in sols.values()])
+        auto_limits.min_ampl_1 = min([ min(abs(g01).min(), abs(g10).min()) for _, _, g00, g01, g10, g11 in sols.values()])
+        auto_limits.max_phase = max([ max([abs(np.angle(g)).max() for g in ggs[2:]]) for ggs in sols.values()])*180/np.pi
+        auto_limits.max_reim = max([ max(abs(g00.real).max(), abs(g00.imag).max(), abs(g11.real).max(), abs(g11.imag).max())
+                                    for _, _, g00, g01, g10, g11 in sols.values()])
+        auto_limits.max_reim_1 = max([ max(abs(g01.real).max(), abs(g01.imag).max(), abs(g10.real).max(), abs(g10.imag).max())
+                                    for _, _, g00, g01, g10, g11 in sols.values()])
     # override with options
     for attr in dir(auto_limits):
         if attr.startswith("min") or attr.startswith("max"):
@@ -129,7 +134,7 @@ def plot_bandpass(sols, plot_diag='ap', plot_offdiag='', gaintype=("Bandpass", "
     nplot = 0
 
     lim = get_plot_limits(options, sols)
-    x1 = sols.values()[0][2]
+    x1 = list(sols.values())[0][2]
     if x1.shape[0] > 100:
         log.warn("making bandpass plot for {} time slices, this better be intentional!".format(x1.shape[0]))
 
@@ -168,16 +173,16 @@ def plot_bandpass(sols, plot_diag='ap', plot_offdiag='', gaintype=("Bandpass", "
 
     def _make_reim_plot(ax, freq, x1, x2, corrs, legend):
         re1, im1, re2, im2 = "Re "+corrs[0], "Im "+corrs[0], "Re "+corrs[1], "Im "+corrs[1]
-        for ts in xrange(x1.shape[0]):
+        for ts in range(x1.shape[0]):
             ax.plot(freq, x1[ts].real, '+r', ms=2, label=re1 if not ts else None)
             ax.plot(freq, x1[ts].imag, '+b', ms=2, label=im1 if not ts else None)
-        for ts in xrange(x2.shape[0]):
+        for ts in range(x2.shape[0]):
             ax.plot(freq, x2[ts].real, '+c', ms=2, label=re1 if not ts else None)
             ax.plot(freq, x2[ts].imag, '+y', ms=2, label=im2 if not ts else None)
         if legend:
             ax.legend(handles=[mpatches.Patch(color=col, label=label) for col, label in
-                                   ("r", re1), ("b", im1),
-                                   ("c", re2), ("y", im2)
+                                   (("r", re1), ("b", im1),
+                                    ("c", re2), ("y", im2))
                                ], loc="upper center", ncol=2, fontsize=options.font_size)
 
     def _make_ap_plot(ax, ax2, freq, x1, x2, corrs, legend):
@@ -187,15 +192,19 @@ def plot_bandpass(sols, plot_diag='ap', plot_offdiag='', gaintype=("Bandpass", "
                      label=ph1 if not ts else None)
             ax2.plot(freq, np.angle(x2[ts]) * 180 / math.pi, '.y', ms=0.5,
                      label=ph2 if not ts else None)
-            ax.plot(freq, abs(x1[ts]), '+r', ms=2, label=amp1 if not ts else None)
-            ax.plot(freq, abs(x2[ts]), '+b', ms=2, label=amp2 if not ts else None)
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", ComplexWarning)
+                ax.plot(freq, abs(x1[ts]), '+r', ms=2, label=amp1 if not ts else None)
+                ax.plot(freq, abs(x2[ts]), '+b', ms=2, label=amp2 if not ts else None)
         if legend:
             ax.legend(handles=[mpatches.Patch(color=col, label=label) for col, label in
-                                   ("r", amp1), ("b", amp2),
-                                   ("c", ph1),  ("y", ph2)
+                                   (("r", amp1), ("b", amp2),
+                                    ("c", ph1),  ("y", ph2))
                                ], loc="upper center", ncol=2, fontsize=options.font_size)
 
-    for iant, (ant, (time, freq, g00, g01, g10, g11)) in enumerate(sols.items()[:max_sols]):
+    for iant, (ant, (time, freq, g00, g01, g10, g11)) in enumerate(sols.items()):
+        if iant >= max_sols:
+            break
         #    print "shape is {}, grid span is {} {}".format(d00.shape, time[[0,-1]], freq[[0,-1]])
         freq = freq * 1e-6
 
@@ -255,7 +264,7 @@ def plot_gain(sols, plot_diag='ap', plot_offdiag='', gaintype=("Gain", "Offdiag 
 
     lim = get_plot_limits(options, sols, time0=time0)
 
-    x1 = sols.values()[0][2]
+    x1 = list(sols.values())[0][2]
     if x1.shape[1] > 100:
         log.warn("making gain plot for {} frequency slices, this better be intentional!".format(x1.shape[1]))
 
@@ -294,27 +303,27 @@ def plot_gain(sols, plot_diag='ap', plot_offdiag='', gaintype=("Gain", "Offdiag 
         return nplot, ax, ax2
 
     def _make_real_plot(ax, time, x1, x2, corrs, legend):
-        for fs in xrange(x1.shape[1]):
+        for fs in range(x1.shape[1]):
             ax.plot(time, x1[:, fs], '+r', ms=2, label=corrs[0] if not fs else None)
-        for fs in xrange(x2.shape[1]):
+        for fs in range(x2.shape[1]):
             ax.plot(time, x2[:, fs], '+b', ms=2, label=corrs[1] if not fs else None)
         if legend:
             ax.legend(handles=[mpatches.Patch(color=col, label=label) for col, label in
-                                   ("r", corrs[0]), ("b", corrs[1]),
+                                   (("r", corrs[0]), ("b", corrs[1]))
                                ], loc="upper center", ncol=2, fontsize=options.font_size)
 
     def _make_reim_plot(ax, time, x1, x2, corrs, legend):
         re1, im1, re2, im2 = "Re "+corrs[0], "Im "+corrs[0], "Re "+corrs[1], "Im "+corrs[1]
-        for fs in xrange(x1.shape[1]):
+        for fs in range(x1.shape[1]):
             ax.plot(time, x1[:, fs].real, '+r', ms=2, label=re1 if not fs else None)
             ax.plot(time, x1[:, fs].imag, '+b', ms=2, label=im1 if not fs else None)
-        for fs in xrange(x2.shape[1]):
+        for fs in range(x2.shape[1]):
             ax.plot(time, x2[:, fs].real, '+c', ms=2, label=re1 if not fs else None)
             ax.plot(time, x2[:, fs].imag, '+y', ms=2, label=im2 if not fs else None)
         if legend:
             ax.legend(handles=[mpatches.Patch(color=col, label=label) for col, label in
-                                   ("r", re1), ("b", im1),
-                                   ("c", re2), ("y", im2)
+                                   (("r", re1), ("b", im1),
+                                    ("c", re2), ("y", im2))
                                ], loc="upper center", ncol=2, fontsize=options.font_size)
 
     def _make_ap_plot(ax, AX2, time, x1, x2, corrs, legend):
@@ -324,12 +333,14 @@ def plot_gain(sols, plot_diag='ap', plot_offdiag='', gaintype=("Gain", "Offdiag 
                      label=ph1 if not fs else None)
             ax2.plot(time, np.angle(x2[:, fs]) * 180 / math.pi, '.y', ms=0.5,
                      label=ph2 if not fs else None)
-            ax.plot(time, abs(x1[:, fs]), '+r', ms=2, label=amp1 if not fs else None)
-            ax.plot(time, abs(x2[:, fs]), '+b', ms=2, label=amp2 if not fs else None)
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", ComplexWarning)
+                ax.plot(time, abs(x1[:, fs]), '+r', ms=2, label=amp1 if not fs else None)
+                ax.plot(time, abs(x2[:, fs]), '+b', ms=2, label=amp2 if not fs else None)
         if legend:
             ax.legend(handles=[mpatches.Patch(color=col, label=label) for col, label in
-                                   ("r", amp1), ("b", amp2),
-                                   ("c", ph1),  ("y", ph2)
+                                   (("r", amp1), ("b", amp2),
+                                    ("c", ph1),  ("y", ph2))
                                ], loc="upper center", ncol=2, fontsize=options.font_size)
 
     for iant, (ant, (time, freq, g00, g01, g10, g11)) in enumerate(sols.items()):
@@ -397,27 +408,24 @@ def get_time_slice(TS, all_times):
     return TS
 
 
-def _get_jones_element_index(G, ant, corr1=0, corr2=0):
+def _get_jones_element_index(G, ant, corr1=0, corr2=0, dir=0):
+    index = dict(ant=ant)
+    if 'dir' in G.axis_index:
+        index.update(dir=dir)
     if 'corr1' in G.axis_index and 'corr2' in G.axis_index:
-        return dict(ant=ant, corr1=corr1, corr2=corr2)
+        index.update(corr1=corr1, corr2=corr2)
+    elif corr1 != corr2:
+        return None
     elif 'corr' in G.axis_index:
-        if corr1 == corr2:
-            return dict(ant=ant, corr=corr1)
-        else:
-            return None
-    else:
-        if corr1 == corr2:
-            return dict(ant=ant)
-        else:
-            return None
+        index.update(corr=corr1)
+    return index
 
-def _get_jones_element_slice(G, ant, corr1=0, corr2=0):
-    index = _get_jones_element_index(G, ant, corr1, corr2)
+
+def _get_jones_element_slice(G, ant, corr1=0, corr2=0, dir=0):
+    index = _get_jones_element_index(G, ant, corr1, corr2, dir=dir)
     if index is None:
         return None, (None, None)
     return G.get_slice(**index)
-
-
 
 
 def prepare_sols_dict(G, FS=None, TS=None):
@@ -439,12 +447,12 @@ def prepare_sols_dict(G, FS=None, TS=None):
 
         # this gets the "raw" solutions for a given slice (antenna, correlation, etc.), and also the grid they're defined on,
         # which could be a subset of the full grid given by the description
-        g00, (time, freq) = _get_jones_element_slice(G, ant=iant, corr1=0, corr2=0)
+        g00, (time, freq) = _get_jones_element_slice(G, ant=iant, corr1=0, corr2=0, dir=options.dir)
         if g00 is None:
             continue
-        g11, _ = _get_jones_element_slice(G, ant=iant, corr1=1, corr2=1)
-        g01, _ = _get_jones_element_slice(G, ant=iant, corr1=0, corr2=1)
-        g10, _ = _get_jones_element_slice(G, ant=iant, corr1=1, corr2=0)
+        g11, _ = _get_jones_element_slice(G, ant=iant, corr1=1, corr2=1, dir=options.dir)
+        g01, _ = _get_jones_element_slice(G, ant=iant, corr1=0, corr2=1, dir=options.dir)
+        g10, _ = _get_jones_element_slice(G, ant=iant, corr1=1, corr2=0, dir=options.dir)
         sols[ant] = time[TS], freq[FS], \
                         g00[TS, FS], \
                         (g01[TS, FS] if g01 is not None else np.array([0.])), \
@@ -490,7 +498,7 @@ def plot_gain_cc(G, FS=None, TS=None,
 
 def read_cubical_gains(filename, label=None, component="gain"):
     """
-    Reads cCubiCal leakage solutions from a CubiCal DB
+    Reads CubiCal leakage solutions from a CubiCal DB
     """
     from cubical.database import pickled_db
     db = pickled_db.PickledDatabase()
@@ -521,7 +529,7 @@ def read_cubical_gains(filename, label=None, component="gain"):
             corr00[axis] = 0
 
     valid_ants = set([ant for iant, ant in enumerate(gg.grid[gg.ax.ant])
-                      if gg.is_slice_valid(**_get_jones_element_index(gg, iant, 0, 0))])
+                      if gg.is_slice_valid(**_get_jones_element_index(gg, iant, 0, 0, dir=options.dir))])
 
     log.print("  valid antennas:", " ".join([ant for ant in gg.grid[gg.ax.ant] if ant in valid_ants]))
     log.print("  missing antennas:", " ".join([ant for ant in gg.grid[gg.ax.ant] if ant not in valid_ants] or ["none"]))

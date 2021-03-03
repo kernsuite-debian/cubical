@@ -45,7 +45,6 @@ on_rtd = os.environ.get('READTHEDOCS') == 'True'
 
 if on_rtd:
     requirements = ['numpy',
-                    'numba', 
                     'futures; python_version <= "2.7"', 
                     'matplotlib',
                     'scipy']
@@ -55,9 +54,9 @@ else:
                     'llvmlite==v0.31.0; python_version <= "2.7"',
                     'numba==0.47.0; python_version <= "2.7"',
                     'numba; python_version >= "3.0"',
-                    'python-casacore<=3.0.0; python_version <= "2.7"',
-                    'python-casacore<=3.0.0; python_version >= "3.0"', 
-                    'sharedarray @ git+https://gitlab.com/bennahugo/shared-array.git@master', 
+#                    'python-casacore<=3.0.0; python_version <= "2.7"',
+                    'python-casacore',
+                    'sharedarray >= 3.2.0',
                     'matplotlib<3.0',
                     'scipy',
                     'astro-tigger-lsm',
@@ -72,7 +71,7 @@ setup(name='cubical',
       version=cubical.VERSION,
       description='Fast calibration implementation exploiting complex optimisation.',
       url='https://github.com/ratt-ru/CubiCal',
-      classifiers=[
+      lassifiers=[
         "Development Status :: 3 - Alpha",
         "Intended Audience :: Science/Research",
         "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
