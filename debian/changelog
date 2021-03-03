@@ -1,3 +1,11 @@
+cubical (1.5.9-1kern1) focal; urgency=medium
+
+  [ Athanaseus Javas Ramaila ]
+  * New upstream version 1.5.9
+  * Build for focal
+
+ -- KERN packaging <packaging@kernsuite.info>  Wed, 03 Mar 2021 11:52:51 +0000
+
 cubical (1.5.1-1kern1) bionic; urgency=medium
 
   [ Gijs Molenaar ]
