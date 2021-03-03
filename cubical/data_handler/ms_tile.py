@@ -5,12 +5,15 @@
 from __future__ import print_function
 from builtins import range
 import numpy as np
+import sys
+import traceback
 from collections import OrderedDict
 
 from cubical.tools import shared_dict
 from cubical.flagging import FL
 from cubical import data_handler
 from cubical.tools import dtype_checks as dtc
+
 
 from cubical.tools import logger, ModColor
 log = logger.getLogger("ms_tile")
@@ -22,6 +25,7 @@ try:
     from cubical.degridder.DicoSourceProvider import DicoSourceProvider
 except ImportError:
     DicoSourceProvider = None
+
 
 ## TERMINOLOGY:
 ## A "chunk" is data for one DDID, a range of timeslots (thus, a subset of the MS rows), and a
@@ -105,7 +109,10 @@ class MSTile(object):
                 self.rebin_chan_map = np.arange(0, len(tile.dh.chanfreqs[self.first_ddid]), dtype=np.int64)
 
             # filled in by self.load_montblanc_models below
-            self._mb_measet_src = None
+            self._mb_measet_src = self._mb_cached_ms_src = None
+
+        # static member will be initialized with FitsBeamSourceProvider if needed
+        _mb_arbeam_src = None
 
         def upsample(self, data):
             """Helper method. Upsamples an array back to full resolution"""
@@ -270,12 +277,10 @@ class MSTile(object):
                 self._mb_cached_ms_src = CachedSourceProvider(self._mb_measet_src,
                                                  cache_data_sources=cache_data_sources,
                                                  clear_start=False, clear_stop=False)
-                if self.tile.dh.beam_pattern:
+                if self.tile.dh.beam_pattern and self._mb_arbeam_src is None:
                     self._mb_arbeam_src = FitsBeamSourceProvider(self.tile.dh.beam_pattern,
-                                                        self.tile.dh.beam_l_axis,
-                                                        self.tile.dh.beam_m_axis)
-                else:
-                    self._mb_arbeam_src = None
+                                                                 self.tile.dh.beam_l_axis,
+                                                                 self.tile.dh.beam_m_axis)
 
             print("  computing visibilities for {}".format(model_source), file=log(0))
             # setup Montblanc computation for this LSM
@@ -957,7 +962,8 @@ class MSTile(object):
                                     model = loaded_models[model_source][cluster]
                                 # cluster of None signifies that this is a visibility column
                                 elif cluster is None:
-                                    if model_source is 1:
+
+                                    if model_source == 1:
                                         print("  using 1.+0j for model {} direction {}{}".format(model_source,
                                                                                                          imod, idir, subtract_str), file=log(2))
                                         model = np.ones_like(obvis)
@@ -1020,7 +1026,11 @@ class MSTile(object):
                                 else:
                                     movis[idir, imod, ...] += model
                                 del model
-
+                
+                # round to 1e-16 to avoid underflows (casa setjy, for example, can yield visibilities with a tiny
+                # imaginary part, which cause underflows when squared)
+                movis.round(16, out=movis)
+            
                 # check for a null model (all directions)
                 invmodel = (~np.isfinite(movis)).any(axis=(0,1))
                 invmodel[...,(0,-1)] |= (movis[...,(0,-1)]==0).all(axis=(0,1))
@@ -1384,9 +1394,18 @@ class MSTile(object):
                     flag_row = flag_col.all(axis=(-1, -2))
                     print("  skipping FLAG column per user request ({:.2%} visibilities would have been flagged otherwise)".format(totflags / float(flag_col.size)), file=log)
                     print("  skipping FLAG_ROW column per user request ({:.2%} rows would have been flagged otherwise)".format(flag_row.sum() / float(flag_row.size)), file=log)
+
+            # Close the Montblanc providers, if any
+            for provider in (subset._mb_measet_src, subset._mb_cached_ms_src):
+                if provider is not None:
+                    provider.close()
+
             if final:
                 self.dh.finalize()
                 self.dh.unlock()
+                # close the singleton beam provider
+                if subset._mb_arbeam_src is not None:
+                    subset._mb_arbeam_src.close()
 
     def release(self, final=False):
         """ Releases the shared memory data dicts. """
@@ -1397,10 +1416,14 @@ class MSTile(object):
             if subset.label is not None:
                 data = shared_dict.attach(subset.datadict)
                 data.delete()
-        if final:
+        # clean up DDF degridder stuff, but only if it was already imported
+        if final and 'cubical.degridder.DDFacetSim' in sys.modules:
             try:
                 from cubical.degridder.DDFacetSim import cleanup_degridders
-            except ImportError as e:
+            except ImportError:
+                for line in traceback.format_exc().splitlines(keepends=False):
+                    log.info(line)
+                log.warn("Error importing cubical.degridder.DDFacetSim.cleanup_degridders, see above")
                 def cleanup_degridders(): pass
             cleanup_degridders()
 
