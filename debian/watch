@@ -1,5 +1,5 @@
 version=4
 opts="searchmode=plain, \
-filenamemangle=s%v?@ANY_VERSION@%ratt-ru@PACKAGE@-$1.tar.gz%" \
+filenamemangle=s%v?@ANY_VERSION@%ratt-ru-@PACKAGE@-$1.tar.gz%" \
 https://api.github.com/repos/ratt-ru/@PACKAGE@/releases \
 https://api.github.com/repos/[^/]+/[^/]+/tarball/v?@ANY_VERSION@
