@@ -1,5 +1,4 @@
-version=4
-opts="searchmode=plain,\
-filenamemangle=s%v?@ANY_VERSION@%v$1.tar.gz%" \
-https://api.github.com/repos/ratt-ru/CubiCal/releases?per_page=50 \
-https://api.github.com/repos/[^/]+/[^/]+/tarball/v?@ANY_VERSION@
+  version=4
+  opts="filenamemangle=s%(?:.*?)?v?(\d[\d.]*@ARCHIVE_EXT@)%@PACKAGE@-$1%" \
+      https://github.com/ratt-ru/CubiCal/tags \
+      (?:.*?/)?v?@ANY_VERSION@@ARCHIVE_EXT@
