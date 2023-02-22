@@ -1,3 +1,10 @@
+cubical (1.6.1.1-1kern1) focal; urgency=medium
+
+  [ Athanaseus Javas Ramaila ]
+  * New upstream release 1.6.1.1
+
+ -- KERN packaging <packaging@kernsuite.info>  Wed, 22 Feb 2023 10:55:18 +0000
+
 cubical (1.5.9-1kern1) focal; urgency=medium
 
   [ Athanaseus Javas Ramaila ]
