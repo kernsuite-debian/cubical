@@ -1,3 +1,11 @@
+cubical (1.6.4-1kern1) jammy; urgency=medium
+
+  [ Athanaseus Javas Ramaila ]
+  * Build for jammy
+  * New upstream version 1.6.4
+
+ -- KERN packaging <packaging@kernsuite.info>  Sun, 07 Apr 2024 19:39:37 +0000
+
 cubical (1.6.1.1-1kern1) focal; urgency=medium
 
   [ Athanaseus Javas Ramaila ]
