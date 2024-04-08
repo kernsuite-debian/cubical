@@ -3,16 +3,18 @@ Section: python
 Priority: optional
 Maintainer: KERN packaging <packaging@kernsuite.info>
 Build-Depends:
- debhelper (>= 11),
+ debhelper-compat (= 13),
  dh-python,
+ scabha,
  python3-setuptools,
  python3-all,
  python3-six,
  python3-numpy,
  python3-scipy,
  python3-psutil,
+ python3-omegaconf,
  python3-future
-Standards-Version: 4.6.1
+Standards-Version: 4.6.2.0
 Homepage: https://github.com/ratt-ru/CubiCal
 Vcs-Browser: https://github.com/kernsuite-debian/cubical
 Vcs-Git: https://github.com/kernsuite-debian/cubical
@@ -25,7 +27,9 @@ Depends: ${python3:Depends}, ${misc:Depends},
  python3-numba,
  python3-casacore,
  python3-sharedarray,
+ python3-scabha,
  python3-matplotlib,
+ python3-omegaconf,
  python3-astro-tigger-lsm 
 Suggests: python-cubical-doc
 Description: A fast radio interferometric calibration suite. (Python 3)
